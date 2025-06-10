@@ -1,19 +1,108 @@
 import streamlit as st
 import openai
 import os
-from dotenv import load_dotenv
 from plant_database import plants_database
 
-# Cargar variables de entorno
-load_dotenv()
+# Configuración de la página
+st.set_page_config(
+    page_title="🌱 Office Plants Expert",
+    page_icon="🌱",
+    layout="wide"
+)
 
-def main():
-    st.set_page_config(
-        page_title="🌱 Office Plants Expert",
-        page_icon="🌱",
-        layout="wide"
-    )
+# Configurar OpenAI
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+
+# Función para crear la base de conocimiento
+def create_knowledge_base():
+    knowledge = "BASE DE CONOCIMIENTO SOBRE PLANTAS DE OFICINA:\n\n"
     
+    for plant_id, plant_info in plants_database.items():
+        knowledge += f"=== {plant_info['name']} ({plant_info['scientific_name']}) ===\n"
+        knowledge += f"Descripción: {plant_info['description']}\n"
+        knowledge += f"Luz: {plant_info['light']}\n"
+        knowledge += f"Riego: {plant_info['water']}\n"
+        knowledge += f"Humedad: {plant_info['humidity']}\n"
+        knowledge += f"Temperatura: {plant_info['temperature']}\n"
+        knowledge += f"Toxicidad: {plant_info['toxicity']}\n"
+        knowledge += f"Dificultad: {plant_info['difficulty']}/5\n"
+        knowledge += "Problemas comunes:\n"
+        for problem, solution in plant_info['common_problems'].items():
+            knowledge += f"- {problem}: {solution}\n"
+        knowledge += "\n"
+    
+    return knowledge
+
+# Función para obtener respuesta del chatbot
+def get_bot_response(user_question, chat_history=None):
+    knowledge_base = create_knowledge_base()
+    
+    system_prompt = f"""
+    Eres un experto en plantas de oficina especializado en ayudar a empresas a mantener sus plantas saludables.
+
+    IMPORTANTE: Solo responde sobre las plantas que están en tu base de conocimiento. Si preguntan sobre plantas que no conoces, sugiere las alternativas más similares de tu base de datos.
+
+    {knowledge_base}
+
+    INSTRUCCIONES:
+    1. Responde de forma práctica y profesional
+    2. Si detectas un problema, da soluciones específicas paso a paso
+    3. Siempre menciona el nivel de dificultad de la planta
+    4. Si preguntan por recomendaciones, pregunta sobre condiciones de luz y espacio
+    5. Menciona toxicidad si es relevante para oficinas
+    6. Sé conciso pero completo
+
+    EJEMPLOS DE RESPUESTAS:
+    - Para diagnósticos: "Basándome en los síntomas, parece que tu [planta] tiene [problema]. Aquí está la solución..."
+    - Para recomendaciones: "Para tu oficina recomiendo [planta] porque..."
+    """
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_question}
+    ]
+    
+    # Añadir historial si existe
+    if chat_history:
+        for msg in chat_history[-4:]:  # Solo últimos 4 mensajes
+            messages.insert(-1, msg)
+
+    try:
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            max_tokens=500,
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error al procesar tu consulta: {str(e)}"
+
+# Función para recomendaciones rápidas
+def get_plant_recommendations(light_level, difficulty_preference):
+    recommendations = []
+    
+    light_mapping = {
+        "baja": ["sansevieria", "zz_plant"],
+        "media": ["pothos", "spathiphyllum", "dracaena"],
+        "alta": ["ficus_benjamin"]
+    }
+    
+    suitable_plants = light_mapping.get(light_level, [])
+    
+    for plant_id in suitable_plants:
+        plant = plants_database[plant_id]
+        if plant['difficulty'] <= difficulty_preference:
+            recommendations.append({
+                'name': plant['name'],
+                'difficulty': plant['difficulty'],
+                'description': plant['description']
+            })
+    
+    return recommendations
+
+# Interfaz principal
+def main():
     # Título principal
     st.title("🌱 Office Plants Expert")
     st.subheader("Tu asistente experto en plantas de oficina")
@@ -33,17 +122,9 @@ def main():
             difficulty_stars = "⭐" * plant_info['difficulty']
             st.write(f"**{plant_info['name']}** {difficulty_stars}")
         
-    # Inicializar chatbot
-    if 'chatbot' not in st.session_state:
-        st.session_state.chatbot = OfficePlantsChatbot()
-    
     # Inicializar historial de chat
-    @st.cache_resource
-    def get_chatbot():
-        return OfficePlantsChatbot()
-    
-    if 'chatbot' not in st.session_state:
-        st.session_state.chatbot = get_chatbot()
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
     
     # Área principal del chat
     col1, col2 = st.columns([3, 1])
@@ -65,10 +146,7 @@ def main():
                 
                 # Obtener respuesta
                 with st.spinner("Analizando tu consulta..."):
-                    response = st.session_state.chatbot.get_response(
-                        user_input, 
-                        st.session_state.chat_history
-                    )
+                    response = get_bot_response(user_input, st.session_state.chat_history)
                 
                 # Guardar respuesta
                 st.session_state.chat_history.append({"role": "assistant", "content": response})
@@ -101,7 +179,7 @@ def main():
         )
         
         if st.button("🌱 Recomendar plantas"):
-            recommendations = st.session_state.chatbot.get_plant_recommendations(light_level, difficulty)
+            recommendations = get_plant_recommendations(light_level, difficulty)
             if recommendations:
                 st.success("**Plantas recomendadas:**")
                 for plant in recommendations:
@@ -116,9 +194,4 @@ def main():
             st.rerun()
 
 if __name__ == "__main__":
-    # Verificar que existe la API key
-    if not os.getenv("OPENAI_API_KEY"):
-        st.error("⚠️ Necesitas configurar tu OPENAI_API_KEY en el archivo .env")
-        st.stop()
-    
     main()
