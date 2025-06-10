@@ -3,7 +3,6 @@ import openai
 import os
 from dotenv import load_dotenv
 from plant_database import plants_database
-from chatbot import OfficePlantsChatbot
 
 # Cargar variables de entorno
 load_dotenv()
