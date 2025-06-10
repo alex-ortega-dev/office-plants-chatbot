@@ -38,8 +38,12 @@ def main():
         st.session_state.chatbot = OfficePlantsChatbot()
     
     # Inicializar historial de chat
-    if 'chat_history' not in st.session_state:
-        st.session_state.chat_history = []
+    @st.cache_resource
+    def get_chatbot():
+        return OfficePlantsChatbot()
+    
+    if 'chatbot' not in st.session_state:
+        st.session_state.chatbot = get_chatbot()
     
     # Área principal del chat
     col1, col2 = st.columns([3, 1])
